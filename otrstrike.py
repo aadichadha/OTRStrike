@@ -139,19 +139,31 @@ if exit_velocity_file:
     df_exit_velocity = pd.read_csv(exit_velocity_file)
     try:
         if len(df_exit_velocity.columns) > 9:
+            # Column indices based on your instructions:
+            # F (5): Strike Zone
+            # H (7): EV (Velo)
+            # I (8): LA
+            # J (9): Dist
             strike_zone_data = df_exit_velocity.iloc[:, 5]   # Column F: Strike Zone
             exit_velocity_data = pd.to_numeric(df_exit_velocity.iloc[:, 7], errors='coerce')  # H: Velo
             launch_angle_data = pd.to_numeric(df_exit_velocity.iloc[:, 8], errors='coerce')   # I: LA
             distance_data = pd.to_numeric(df_exit_velocity.iloc[:, 9], errors='coerce')       # J: Dist
 
-            non_zero_ev_rows = exit_velocity_data[exit_velocity_data > 0]
+            # Filter out zero EV rows for calculations
+            non_zero_ev_mask = exit_velocity_data > 0
+            non_zero_ev_data = exit_velocity_data[non_zero_ev_mask]
 
-            if not non_zero_ev_rows.empty:
-                # Calculate Exit Velocity Metrics
-                exit_velocity_avg = non_zero_ev_rows.mean()
-                top_8_percent_exit_velocity = non_zero_ev_rows.quantile(0.92)
+            if not non_zero_ev_data.empty:
+                # Calculate Exit Velocity Metrics from non-zero data
+                exit_velocity_avg = non_zero_ev_data.mean()
+                top_8_percent_exit_velocity = non_zero_ev_data.quantile(0.92)
 
-                top_8_mask = exit_velocity_data >= top_8_percent_exit_velocity
+                # Mask for top 8% EV (only considering non-zero)
+                top_8_mask = (exit_velocity_data >= top_8_percent_exit_velocity) & (exit_velocity_data > 0)
+                top_8_df = df_exit_velocity[top_8_mask].copy()
+                top_8_df["StrikeZone"] = top_8_df.iloc[:, 5]
+
+                # Compute metrics
                 avg_launch_angle_top_8 = launch_angle_data[top_8_mask].mean()
                 avg_distance_top_8 = distance_data[top_8_mask].mean()
                 total_avg_launch_angle = launch_angle_data[launch_angle_data > 0].mean()
@@ -175,11 +187,14 @@ if exit_velocity_file:
                 )
 
                 # Compute frequency of top 8% EV in each zone
-                top_8_df = df_exit_velocity[top_8_mask].copy()
-                top_8_df["StrikeZone"] = top_8_df.iloc[:, 5]
                 zone_counts = top_8_df["StrikeZone"].value_counts()
 
-                # Zones of interest layout
+                # Compute average EV per zone (top 8% only)
+                # EV is in column H (index 7), so:
+                velocity_column_name = df_exit_velocity.columns[7]
+                zone_mean_ev = top_8_df.groupby("StrikeZone")[velocity_column_name].mean()
+
+                # Zones layout
                 zone_layout = [
                     [10, None, 11],
                     [1,   2,    3],
@@ -188,10 +203,9 @@ if exit_velocity_file:
                     [12, None, 13]
                 ]
 
-                # Get max count for normalization
                 max_count = zone_counts.max() if not zone_counts.empty else 0
 
-                # Create a custom colormap from dark blue -> grey -> red
+                # Create a custom colormap: darkblue -> grey -> red
                 cmap = LinearSegmentedColormap.from_list('strikezones', ['darkblue', 'grey', 'red'])
 
                 fig, ax = plt.subplots(figsize=(3,5))
@@ -200,22 +214,29 @@ if exit_velocity_file:
                 cell_width = 1.0
                 cell_height = 1.0
 
-                # Plot each cell
                 for r, row_zones in enumerate(zone_layout):
                     for c, z in enumerate(row_zones):
                         x = c * cell_width
-                        # invert y to start top row at top
-                        y = (len(zone_layout)-1 - r) * cell_height
+                        y = (len(zone_layout)-1 - r) * cell_height  # invert y-axis
                         if z is not None:
                             count = zone_counts.get(z, 0)
                             norm_val = (count / max_count) if max_count > 0 else 0
                             color = cmap(norm_val)
+
                             rect = plt.Rectangle((x, y), cell_width, cell_height, facecolor=color, edgecolor='black')
                             ax.add_patch(rect)
-                            # Add text (zone number)
-                            ax.text(x+0.5*cell_width, y+0.5*cell_height, str(z), ha='center', va='center', fontsize=10, color='black')
+
+                            # Zone number text
+                            ax.text(x+0.5*cell_width, y+0.7*cell_height, str(z), 
+                                    ha='center', va='center', fontsize=10, color='black')
+
+                            # Average EV text (if available)
+                            mean_ev = zone_mean_ev.get(z, np.nan)
+                            if not np.isnan(mean_ev):
+                                ax.text(x+0.5*cell_width, y+0.3*cell_height, f"{mean_ev:.1f} mph",
+                                        ha='center', va='center', fontsize=8, color='black')
                         else:
-                            # Just a blank cell
+                            # Blank cell
                             rect = plt.Rectangle((x, y), cell_width, cell_height, facecolor='white', edgecolor='black')
                             ax.add_patch(rect)
 
@@ -232,7 +253,7 @@ if exit_velocity_file:
                 strike_zone_img_html = f"<h3>Strike Zone Top 8% Exit Velocities</h3><img src='data:image/png;base64,{img_data}'/>"
 
             else:
-                st.error("No valid Exit Velocity data found in the file. Please check the data.")
+                st.error("No valid non-zero Exit Velocity data found. Please check the data.")
         else:
             st.error("The uploaded file does not have the required columns for Exit Velocity.")
     except Exception as e:
@@ -342,4 +363,5 @@ if st.button("Send Report"):
         )
     else:
         st.error("Please enter a valid email address.")
+
 
