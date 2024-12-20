@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import LinearSegmentedColormap
 
 # Title and Introduction
 st.title("OTR Baseball Metrics Analyzer")
@@ -137,12 +138,6 @@ strike_zone_img_html = ""  # We'll embed an image of the strike zone
 if exit_velocity_file:
     df_exit_velocity = pd.read_csv(exit_velocity_file)
     try:
-        # Based on your instructions:
-        # Strike Zone = Column F (Index 5)
-        # Velo = Column H (Index 7)
-        # LA = Column I (Index 8)
-        # Dist = Column J (Index 9)
-
         if len(df_exit_velocity.columns) > 9:
             strike_zone_data = df_exit_velocity.iloc[:, 5]   # Column F: Strike Zone
             exit_velocity_data = pd.to_numeric(df_exit_velocity.iloc[:, 7], errors='coerce')  # H: Velo
@@ -184,24 +179,7 @@ if exit_velocity_file:
                 top_8_df["StrikeZone"] = top_8_df.iloc[:, 5]
                 zone_counts = top_8_df["StrikeZone"].value_counts()
 
-                # Zones of interest: 10,11 on top; 1-9 in middle; 12,13 at bottom
-                # Layout (rows x columns):
-                # Row 1: 10 (left), blank, 11 (right)
-                # Row 2: 1,2,3
-                # Row 3: 4,5,6
-                # Row 4: 7,8,9
-                # Row 5: 12 (left), blank, 13 (right)
-
-                # To visualize, we'll define the positions in a grid (5 rows x 3 columns)
-                # We'll place empty cells where there's no zone.
-                # Grid (R=row, C=col):
-                # R1: [10, None, 11]
-                # R2: [1, 2, 3]
-                # R3: [4, 5, 6]
-                # R4: [7, 8, 9]
-                # R5: [12, None, 13]
-
-                # Define the layout
+                # Zones of interest layout
                 zone_layout = [
                     [10, None, 11],
                     [1,   2,    3],
@@ -213,27 +191,25 @@ if exit_velocity_file:
                 # Get max count for normalization
                 max_count = zone_counts.max() if not zone_counts.empty else 0
 
-                # Create a figure with matplotlib
+                # Create a custom colormap from dark blue -> grey -> red
+                cmap = LinearSegmentedColormap.from_list('strikezones', ['darkblue', 'grey', 'red'])
+
                 fig, ax = plt.subplots(figsize=(3,5))
                 ax.axis('off')
 
-                # Create a colormap from white to red
-                cmap = plt.get_cmap('Reds')
-                # We'll map frequency to a [0,1] range: no hits = white, max hits = deep red.
-
-                # Plot each cell as a colored rectangle with the zone number
                 cell_width = 1.0
                 cell_height = 1.0
 
-                # Start from top: y=0 downwards
+                # Plot each cell
                 for r, row_zones in enumerate(zone_layout):
                     for c, z in enumerate(row_zones):
                         x = c * cell_width
-                        y = (len(zone_layout)-1 - r) * cell_height  # invert y to start top at top
+                        # invert y to start top row at top
+                        y = (len(zone_layout)-1 - r) * cell_height
                         if z is not None:
                             count = zone_counts.get(z, 0)
                             norm_val = (count / max_count) if max_count > 0 else 0
-                            color = cmap(norm_val * 0.8 + 0.2) if norm_val > 0 else (1,1,1,1) # more white if no hits
+                            color = cmap(norm_val)
                             rect = plt.Rectangle((x, y), cell_width, cell_height, facecolor=color, edgecolor='black')
                             ax.add_patch(rect)
                             # Add text (zone number)
@@ -243,7 +219,6 @@ if exit_velocity_file:
                             rect = plt.Rectangle((x, y), cell_width, cell_height, facecolor='white', edgecolor='black')
                             ax.add_patch(rect)
 
-                # Adjust the limits to fit all cells
                 ax.set_xlim(0, 3*cell_width)
                 ax.set_ylim(0, 5*cell_height)
 
@@ -367,3 +342,4 @@ if st.button("Send Report"):
         )
     else:
         st.error("Please enter a valid email address.")
+
