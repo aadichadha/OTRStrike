@@ -354,4 +354,5 @@ if st.button("Send Report"):
             zone_avg_df
         )
     else:
-        st.error("Please enter a valid email address."
+        st.error("Please enter a valid email address.")
+
