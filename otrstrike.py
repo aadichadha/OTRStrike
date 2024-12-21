@@ -79,6 +79,10 @@ benchmarks = {
 }
 
 def evaluate_performance(metric, benchmark, lower_is_better=False, special_metric=False):
+    """
+    Grade the player's performance based on the given benchmark.
+    special_metric -> uses a +/- 3 mph range for 'Average' to handle EV specifically.
+    """
     if special_metric:
         if benchmark - 3 <= metric <= benchmark:
             return "Average"
@@ -135,7 +139,6 @@ if bat_speed_file:
 # Process Exit Velocity File
 exit_velocity_metrics = None
 strike_zone_img_html = ""
-zone_avg_df = None  # To store zone averages for emailing as well
 
 if exit_velocity_file:
     df_exit_velocity = pd.read_csv(exit_velocity_file)
@@ -159,9 +162,11 @@ if exit_velocity_file:
                 # Calculate EV metrics
                 exit_velocity_avg = non_zero_ev_data.mean()
                 top_8_percent_exit_velocity = non_zero_ev_data.quantile(0.92)
-                top_8_mask = exit_velocity_data >= top_8_percent_exit_velocity
-                avg_launch_angle_top_8 = launch_angle_data[top_8_mask & non_zero_mask].mean()
-                avg_distance_top_8 = distance_data[top_8_mask & non_zero_mask].mean()
+
+                # For top 8% calculations, also ignore zero EV
+                top_8_mask = (exit_velocity_data >= top_8_percent_exit_velocity) & non_zero_mask
+                avg_launch_angle_top_8 = launch_angle_data[top_8_mask].mean()
+                avg_distance_top_8 = distance_data[top_8_mask].mean()
                 total_avg_launch_angle = launch_angle_data[launch_angle_data > 0].mean()
 
                 ev_benchmark = benchmarks[exit_velocity_level]["Avg EV"]
@@ -182,7 +187,7 @@ if exit_velocity_file:
                     f"- **Average Distance (8% swings):** {avg_distance_top_8:.2f} ft\n"
                 )
 
-                # Now create the zone chart based on all non-zero EV data (not top 8% only)
+                # Now create the zone chart based on ALL non-zero EV data
                 non_zero_df = df_exit_velocity[non_zero_mask].copy()
                 non_zero_df["StrikeZone"] = non_zero_df.iloc[:, 5]
 
@@ -222,7 +227,7 @@ if exit_velocity_file:
                         if z is not None:
                             mean_ev = zone_avg_df.get(z, np.nan)
                             if np.isnan(mean_ev):
-                                # No data: show white cell
+                                # No data for that zone -> white
                                 color = 'white'
                             else:
                                 # Normalize mean_ev
@@ -258,7 +263,11 @@ if exit_velocity_file:
                 img_data = base64.b64encode(buf.read()).decode('utf-8')
                 plt.close(fig)
 
-                strike_zone_img_html = f"<h3>Strike Zone Averages</h3><img src='data:image/png;base64,{img_data}'/>"
+                # Embed the heatmap as HTML
+                strike_zone_img_html = (
+                    "<h3>Strike Zone Average Exit Velocity</h3>"
+                    f"<img src='data:image/png;base64,{img_data}'/>"
+                )
             else:
                 st.error("No valid non-zero Exit Velocity data found. Please check the data.")
         else:
@@ -284,7 +293,16 @@ email_password = "pslp fuab dmub cggo"    # Your app-specific password
 smtp_server = "smtp.gmail.com"
 smtp_port = 587
 
-def send_email_report(recipient_email, bat_speed_metrics, exit_velocity_metrics, player_name, date_range, bat_speed_level, exit_velocity_level, strike_zone_img_html, zone_avg_df):
+def send_email_report(
+    recipient_email,
+    bat_speed_metrics,
+    exit_velocity_metrics,
+    player_name,
+    date_range,
+    bat_speed_level,
+    exit_velocity_level,
+    strike_zone_img_html
+):
     msg = MIMEMultipart()
     msg['From'] = email_address
     msg['To'] = recipient_email
@@ -300,29 +318,24 @@ def send_email_report(recipient_email, bat_speed_metrics, exit_velocity_metrics,
 
     if bat_speed_metrics:
         email_body += f"<p style='color: black;'><strong>Bat Speed Level:</strong> {bat_speed_level}</p>"
+
     if exit_velocity_metrics:
         email_body += f"<p style='color: black;'><strong>Exit Velocity Level:</strong> {exit_velocity_level}</p>"
 
     email_body += "<p style='color: black;'>The following data is constructed with benchmarks for each level.</p>"
 
+    # Bat Speed Metrics
     if bat_speed_metrics:
+        # Convert line breaks to <br> for HTML
         email_body += bat_speed_metrics.replace("\n", "<br>")
 
+    # Exit Velocity Metrics
     if exit_velocity_metrics:
         email_body += exit_velocity_metrics.replace("\n", "<br>")
 
-    # Add strike zone chart to email
+    # Insert the heatmap image (same PNG from the Streamlit app)
     if strike_zone_img_html:
         email_body += strike_zone_img_html
-
-    # Optionally, display zone average EV in a table (if zone_avg_df is available)
-    if zone_avg_df is not None and not zone_avg_df.empty:
-        email_body += "<h3 style='color: black;'>Zone Average EV (Non-zero)</h3>"
-        email_body += "<table border='1' style='border-collapse: collapse; color: black;'>"
-        email_body += "<tr><th>Zone</th><th>Average EV (mph)</th></tr>"
-        for zone, avg_ev in zone_avg_df.items():
-            email_body += f"<tr><td>{zone}</td><td>{avg_ev:.1f}</td></tr>"
-        email_body += "</table>"
 
     email_body += "<p style='color: black;'>Best Regards,<br>OTR Baseball</p></body></html>"
 
@@ -350,8 +363,7 @@ if st.button("Send Report"):
             date_range,
             bat_speed_level,
             exit_velocity_level,
-            strike_zone_img_html,
-            zone_avg_df
+            strike_zone_img_html
         )
     else:
         st.error("Please enter a valid email address.")
