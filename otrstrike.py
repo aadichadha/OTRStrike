@@ -31,7 +31,7 @@ exit_velocity_level = st.selectbox(
     ["10u", "12u", "14u", "JV/16u", "Var/18u", "College", "Indy", "Affiliate"]
 )
 
-# Debugging: Ensure levels are selected correctly
+# Debug
 st.write(f"Selected Bat Speed Level: {bat_speed_level}")
 st.write(f"Selected Exit Velocity Level: {exit_velocity_level}")
 
@@ -102,12 +102,12 @@ def evaluate_performance(metric, benchmark, lower_is_better=False, special_metri
             else:
                 return "Below Average"
 
-# Process Bat Speed File (Skip the first 8 rows)
+# Process Bat Speed File (Skip first 8 rows)
 bat_speed_metrics = None
 if bat_speed_file:
     df_bat_speed = pd.read_csv(bat_speed_file, skiprows=8)
-    bat_speed_data = pd.to_numeric(df_bat_speed.iloc[:, 7], errors='coerce')  # Column H: Bat Speed
-    attack_angle_data = pd.to_numeric(df_bat_speed.iloc[:, 10], errors='coerce')  # Column K: Attack Angle
+    bat_speed_data = pd.to_numeric(df_bat_speed.iloc[:, 7], errors='coerce')  # Bat Speed
+    attack_angle_data = pd.to_numeric(df_bat_speed.iloc[:, 10], errors='coerce')  # Attack Angle
     time_to_contact_data = pd.to_numeric(df_bat_speed.iloc[:, 15], errors='coerce')  # Time to Contact
 
     player_avg_bat_speed = bat_speed_data.mean()
@@ -132,40 +132,36 @@ if bat_speed_file:
         f"  - Player Grade: {evaluate_performance(avg_time_to_contact, time_to_contact_benchmark, lower_is_better=True)}\n"
     )
 
-# Process Exit Velocity File (No rows skipped)
+# Process Exit Velocity File
 exit_velocity_metrics = None
-strike_zone_img_html = ""  # We'll embed an image of the strike zone
+strike_zone_img_html = ""
+zone_avg_df = None  # To store zone averages for emailing as well
+
 if exit_velocity_file:
     df_exit_velocity = pd.read_csv(exit_velocity_file)
     try:
         if len(df_exit_velocity.columns) > 9:
-            # Column indices based on your instructions:
+            # Columns:
             # F (5): Strike Zone
             # H (7): EV (Velo)
             # I (8): LA
             # J (9): Dist
-            strike_zone_data = df_exit_velocity.iloc[:, 5]   # Column F: Strike Zone
-            exit_velocity_data = pd.to_numeric(df_exit_velocity.iloc[:, 7], errors='coerce')  # H: Velo
-            launch_angle_data = pd.to_numeric(df_exit_velocity.iloc[:, 8], errors='coerce')   # I: LA
-            distance_data = pd.to_numeric(df_exit_velocity.iloc[:, 9], errors='coerce')       # J: Dist
+            strike_zone_data = df_exit_velocity.iloc[:, 5]
+            exit_velocity_data = pd.to_numeric(df_exit_velocity.iloc[:, 7], errors='coerce')
+            launch_angle_data = pd.to_numeric(df_exit_velocity.iloc[:, 8], errors='coerce')
+            distance_data = pd.to_numeric(df_exit_velocity.iloc[:, 9], errors='coerce')
 
-            # Filter out zero EV rows for calculations
-            non_zero_ev_mask = exit_velocity_data > 0
-            non_zero_ev_data = exit_velocity_data[non_zero_ev_mask]
+            # Filter out zero EV
+            non_zero_mask = exit_velocity_data > 0
+            non_zero_ev_data = exit_velocity_data[non_zero_mask]
 
             if not non_zero_ev_data.empty:
-                # Calculate Exit Velocity Metrics from non-zero data
+                # Calculate EV metrics
                 exit_velocity_avg = non_zero_ev_data.mean()
                 top_8_percent_exit_velocity = non_zero_ev_data.quantile(0.92)
-
-                # Mask for top 8% EV (only considering non-zero)
-                top_8_mask = (exit_velocity_data >= top_8_percent_exit_velocity) & (exit_velocity_data > 0)
-                top_8_df = df_exit_velocity[top_8_mask].copy()
-                top_8_df["StrikeZone"] = top_8_df.iloc[:, 5]
-
-                # Compute metrics
-                avg_launch_angle_top_8 = launch_angle_data[top_8_mask].mean()
-                avg_distance_top_8 = distance_data[top_8_mask].mean()
+                top_8_mask = exit_velocity_data >= top_8_percent_exit_velocity
+                avg_launch_angle_top_8 = launch_angle_data[top_8_mask & non_zero_mask].mean()
+                avg_distance_top_8 = distance_data[top_8_mask & non_zero_mask].mean()
                 total_avg_launch_angle = launch_angle_data[launch_angle_data > 0].mean()
 
                 ev_benchmark = benchmarks[exit_velocity_level]["Avg EV"]
@@ -175,24 +171,31 @@ if exit_velocity_file:
 
                 exit_velocity_metrics = (
                     "### Exit Velocity Metrics\n"
-                    f"- **Average Exit Velocity:** {exit_velocity_avg:.2f} mph (Benchmark: {ev_benchmark} mph)\n"
+                    f"- **Average Exit Velocity (Non-zero EV):** {exit_velocity_avg:.2f} mph (Benchmark: {ev_benchmark} mph)\n"
                     f"  - Player Grade: {evaluate_performance(exit_velocity_avg, ev_benchmark, special_metric=True)}\n"
                     f"- **Top 8% Exit Velocity:** {top_8_percent_exit_velocity:.2f} mph (Benchmark: {top_8_benchmark} mph)\n"
                     f"  - Player Grade: {evaluate_performance(top_8_percent_exit_velocity, top_8_benchmark, special_metric=True)}\n"
-                    f"- **Average Launch Angle (On Top 8% Exit Velocity Swings):** {avg_launch_angle_top_8:.2f}° (Benchmark: {hhb_la_benchmark}°)\n"
+                    f"- **Average Launch Angle (On Top 8% EV Swings):** {avg_launch_angle_top_8:.2f}° (Benchmark: {hhb_la_benchmark}°)\n"
                     f"  - Player Grade: {evaluate_performance(avg_launch_angle_top_8, hhb_la_benchmark)}\n"
                     f"- **Total Average Launch Angle (Avg LA):** {total_avg_launch_angle:.2f}° (Benchmark: {la_benchmark}°)\n"
                     f"  - Player Grade: {evaluate_performance(total_avg_launch_angle, la_benchmark)}\n"
                     f"- **Average Distance (8% swings):** {avg_distance_top_8:.2f} ft\n"
                 )
 
-                # Compute frequency of top 8% EV in each zone
-                zone_counts = top_8_df["StrikeZone"].value_counts()
+                # Now create the zone chart based on all non-zero EV data (not top 8% only)
+                non_zero_df = df_exit_velocity[non_zero_mask].copy()
+                non_zero_df["StrikeZone"] = non_zero_df.iloc[:, 5]
 
-                # Compute average EV per zone (top 8% only)
-                # EV is in column H (index 7), so:
+                # Compute average EV per zone
                 velocity_column_name = df_exit_velocity.columns[7]
-                zone_mean_ev = top_8_df.groupby("StrikeZone")[velocity_column_name].mean()
+                zone_avg_df = non_zero_df.groupby("StrikeZone")[velocity_column_name].mean()
+
+                # Determine min and max EV averages for normalization
+                if not zone_avg_df.empty:
+                    min_ev = zone_avg_df.min()
+                    max_ev = zone_avg_df.max()
+                else:
+                    min_ev, max_ev = 0, 1
 
                 # Zones layout
                 zone_layout = [
@@ -203,9 +206,7 @@ if exit_velocity_file:
                     [12, None, 13]
                 ]
 
-                max_count = zone_counts.max() if not zone_counts.empty else 0
-
-                # Create a custom colormap: darkblue -> grey -> red
+                # Create colormap
                 cmap = LinearSegmentedColormap.from_list('strikezones', ['darkblue', 'grey', 'red'])
 
                 fig, ax = plt.subplots(figsize=(3,5))
@@ -217,24 +218,31 @@ if exit_velocity_file:
                 for r, row_zones in enumerate(zone_layout):
                     for c, z in enumerate(row_zones):
                         x = c * cell_width
-                        y = (len(zone_layout)-1 - r) * cell_height  # invert y-axis
+                        y = (len(zone_layout)-1 - r) * cell_height
                         if z is not None:
-                            count = zone_counts.get(z, 0)
-                            norm_val = (count / max_count) if max_count > 0 else 0
-                            color = cmap(norm_val)
+                            mean_ev = zone_avg_df.get(z, np.nan)
+                            if np.isnan(mean_ev):
+                                # No data: show white cell
+                                color = 'white'
+                            else:
+                                # Normalize mean_ev
+                                norm_val = (mean_ev - min_ev) / (max_ev - min_ev) if (max_ev > min_ev) else 0
+                                color = cmap(norm_val)
 
                             rect = plt.Rectangle((x, y), cell_width, cell_height, facecolor=color, edgecolor='black')
                             ax.add_patch(rect)
 
-                            # Zone number text
+                            # Zone number
                             ax.text(x+0.5*cell_width, y+0.7*cell_height, str(z), 
                                     ha='center', va='center', fontsize=10, color='black')
 
-                            # Average EV text (if available)
-                            mean_ev = zone_mean_ev.get(z, np.nan)
+                            # Average EV text if available
                             if not np.isnan(mean_ev):
                                 ax.text(x+0.5*cell_width, y+0.3*cell_height, f"{mean_ev:.1f} mph",
                                         ha='center', va='center', fontsize=8, color='black')
+                            else:
+                                # No data
+                                pass
                         else:
                             # Blank cell
                             rect = plt.Rectangle((x, y), cell_width, cell_height, facecolor='white', edgecolor='black')
@@ -250,8 +258,7 @@ if exit_velocity_file:
                 img_data = base64.b64encode(buf.read()).decode('utf-8')
                 plt.close(fig)
 
-                strike_zone_img_html = f"<h3>Strike Zone Top 8% Exit Velocities</h3><img src='data:image/png;base64,{img_data}'/>"
-
+                strike_zone_img_html = f"<h3>Strike Zone Averages (Non-zero EV)</h3><img src='data:image/png;base64,{img_data}'/>"
             else:
                 st.error("No valid non-zero Exit Velocity data found. Please check the data.")
         else:
@@ -259,7 +266,7 @@ if exit_velocity_file:
     except Exception as e:
         st.error(f"An error occurred while processing the Exit Velocity file: {e}")
 
-# Display Results
+# Display Results in Streamlit
 st.write("## Calculated Metrics")
 if bat_speed_metrics:
     st.markdown(bat_speed_metrics)
@@ -273,11 +280,11 @@ date_range = st.text_input("Enter Date Range")
 
 # Email Configuration
 email_address = "otrdatatrack@gmail.com"  # Your email address
-email_password = "pslp fuab dmub cggo"  # Your app-specific password
+email_password = "pslp fuab dmub cggo"    # Your app-specific password
 smtp_server = "smtp.gmail.com"
 smtp_port = 587
 
-def send_email_report(recipient_email, bat_speed_metrics, exit_velocity_metrics, player_name, date_range, bat_speed_level, exit_velocity_level, strike_zone_img_html):
+def send_email_report(recipient_email, bat_speed_metrics, exit_velocity_metrics, player_name, date_range, bat_speed_level, exit_velocity_level, strike_zone_img_html, zone_avg_df):
     msg = MIMEMultipart()
     msg['From'] = email_address
     msg['To'] = recipient_email
@@ -299,39 +306,23 @@ def send_email_report(recipient_email, bat_speed_metrics, exit_velocity_metrics,
     email_body += "<p style='color: black;'>The following data is constructed with benchmarks for each level.</p>"
 
     if bat_speed_metrics:
-        email_body += f"""
-        <h3 style="color: black;">Bat Speed Metrics</h3>
-        <p><strong>Player Average Bat Speed:</strong> {player_avg_bat_speed:.2f} mph (Benchmark: {bat_speed_benchmark} mph)
-        <br>Player Grade: {evaluate_performance(player_avg_bat_speed, bat_speed_benchmark)}</p>
-
-        <p><strong>Top 10% Bat Speed:</strong> {top_10_percent_bat_speed:.2f} mph (Benchmark: {top_90_benchmark} mph)
-        <br>Player Grade: {evaluate_performance(top_10_percent_bat_speed, top_90_benchmark)}</p>
-
-        <p><strong>Average Attack Angle (Top 10% Bat Speed Swings):</strong> {avg_attack_angle_top_10:.2f}° (Benchmark: {attack_angle_benchmark}°)
-        <br>Player Grade: {evaluate_performance(avg_attack_angle_top_10, attack_angle_benchmark)}</p>
-
-        <p><strong>Average Time to Contact:</strong> {avg_time_to_contact:.3f} sec (Benchmark: {time_to_contact_benchmark} sec)
-        <br>Player Grade: {evaluate_performance(avg_time_to_contact, time_to_contact_benchmark, lower_is_better=True)}</p>
-        """
+        email_body += bat_speed_metrics.replace("\n", "<br>")
 
     if exit_velocity_metrics:
-        email_body += f"""
-        <h3 style="color: black;">Exit Velocity Metrics</h3>
-        <p><strong>Average Exit Velocity:</strong> {exit_velocity_avg:.2f} mph (Benchmark: {ev_benchmark} mph)
-        <br>Player Grade: {evaluate_performance(exit_velocity_avg, ev_benchmark, special_metric=True)}</p>
+        email_body += exit_velocity_metrics.replace("\n", "<br>")
 
-        <p><strong>Top 8% Exit Velocity:</strong> {top_8_percent_exit_velocity:.2f} mph (Benchmark: {top_8_benchmark} mph)
-        <br>Player Grade: {evaluate_performance(top_8_percent_exit_velocity, top_8_benchmark, special_metric=True)}</p>
+    # Add strike zone chart to email
+    if strike_zone_img_html:
+        email_body += strike_zone_img_html
 
-        <p><strong>Average Launch Angle (On Top 8% Exit Velocity Swings):</strong> {avg_launch_angle_top_8:.2f}° (Benchmark: {hhb_la_benchmark}°)
-        <br>Player Grade: {evaluate_performance(avg_launch_angle_top_8, hhb_la_benchmark)}</p>
-
-        <p><strong>Total Average Launch Angle (Avg LA):</strong> {total_avg_launch_angle:.2f}° (Benchmark: {la_benchmark}°)
-        <br>Player Grade: {evaluate_performance(total_avg_launch_angle, la_benchmark)}</p>
-
-        <p><strong>Average Distance (8% swings):</strong> {avg_distance_top_8:.2f} ft</p>
-        {strike_zone_img_html}
-        """
+    # Optionally, display zone average EV in a table (if zone_avg_df is available)
+    if zone_avg_df is not None and not zone_avg_df.empty:
+        email_body += "<h3 style='color: black;'>Zone Average EV (Non-zero)</h3>"
+        email_body += "<table border='1' style='border-collapse: collapse; color: black;'>"
+        email_body += "<tr><th>Zone</th><th>Average EV (mph)</th></tr>"
+        for zone, avg_ev in zone_avg_df.items():
+            email_body += f"<tr><td>{zone}</td><td>{avg_ev:.1f}</td></tr>"
+        email_body += "</table>"
 
     email_body += "<p style='color: black;'>Best Regards,<br>OTR Baseball</p></body></html>"
 
@@ -359,9 +350,8 @@ if st.button("Send Report"):
             date_range,
             bat_speed_level,
             exit_velocity_level,
-            strike_zone_img_html
+            strike_zone_img_html,
+            zone_avg_df
         )
     else:
-        st.error("Please enter a valid email address.")
-
-
+        st.error("Please enter a valid email address."
