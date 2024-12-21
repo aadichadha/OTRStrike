@@ -258,7 +258,7 @@ if exit_velocity_file:
                 img_data = base64.b64encode(buf.read()).decode('utf-8')
                 plt.close(fig)
 
-                strike_zone_img_html = f"<h3>Strike Zone Averages (Non-zero EV)</h3><img src='data:image/png;base64,{img_data}'/>"
+                strike_zone_img_html = f"<h3>Strike Zone Averages</h3><img src='data:image/png;base64,{img_data}'/>"
             else:
                 st.error("No valid non-zero Exit Velocity data found. Please check the data.")
         else:
